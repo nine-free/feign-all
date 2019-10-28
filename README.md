@@ -456,6 +456,7 @@ public static String sendGet(String url, String param) {
 
 ## feign在spring boot中的应用
 
+
 ## 延伸
 
 #### 反射
