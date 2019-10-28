@@ -1,4 +1,5 @@
 import feign.*;
+import feign.auth.BasicAuthRequestInterceptor;
 import feign.codec.Decoder;
 import feign.codec.EncodeException;
 import feign.codec.Encoder;
@@ -23,6 +24,7 @@ public class ComplexFeignTest {
          */
         List<RequestInterceptor> requestInterceptors = new ArrayList<RequestInterceptor>();
         requestInterceptors.add(new MyRequestInterceptor());
+        requestInterceptors.add(new BasicAuthRequestInterceptor("123", "456"));
         TestService testService = Feign.builder().
                 requestInterceptors(requestInterceptors).
                 decoder(new MyDecoder()).
@@ -32,7 +34,7 @@ public class ComplexFeignTest {
                 logger(new MyLogger()).
                 logLevel(Logger.Level.BASIC).
                 target(TestService.class, "http://127.0.0.1:8080/");
-        testService.test1(1);
+        testService.test3("5");
 
     }
 

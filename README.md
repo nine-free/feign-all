@@ -277,8 +277,182 @@ public class ComplexFeignTest {
 可以看到feign调用http接口，支持拦截器，编解码，重试等丰富的功能
 
 ## feign的实现原理(why)
+feign的核心jar包只有一个 **feign-core-8.18.0.jar**
+看一下整个jar包下面的类结构，相对来说比较简单
+![image](http://soft1010.top/img/feign-class.jpeg)
+
+#### 通源码解析实现原理
+```
+                Feign.builder().
+                requestInterceptors(requestInterceptors).
+                decoder(new MyDecoder()).
+                encoder(new MyEncoder()).
+                options(new Request.Options(10000, 60000)).
+                retryer(new MyRetryer(1000, 10000, 3)).
+                logger(new MyLogger()).
+                logLevel(Logger.Level.BASIC).
+                target(TestService.class, "http://127.0.0.1:8080/");     
+```
+1. 通过**构造器模式**构造Feign.Builder对象。
+2. target()方法最后调用了ReflectiveFeign.newInstance()方法
+3. 核心代码 通过**动态代理**将feign模板化的接口实例化
+```
+    InvocationHandler handler = factory.create(target, methodToHandler);
+    T proxy = (T) Proxy.newProxyInstance(target.type().getClassLoader(), new Class<?>[]{target.type()}, handler);
+```
+4. 根据动态代理的原理，InvocationHandler这个接口的实现既是具体调用逻辑所在
+ ```
+ static class FeignInvocationHandler implements InvocationHandler {
+
+    private final Target target;
+    private final Map<Method, MethodHandler> dispatch;
+
+    FeignInvocationHandler(Target target, Map<Method, MethodHandler> dispatch) {
+      this.target = checkNotNull(target, "target");
+      this.dispatch = checkNotNull(dispatch, "dispatch for %s", target);
+    }
+
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+      if ("equals".equals(method.getName())) {
+        try {
+          Object
+              otherHandler =
+              args.length > 0 && args[0] != null ? Proxy.getInvocationHandler(args[0]) : null;
+          return equals(otherHandler);
+        } catch (IllegalArgumentException e) {
+          return false;
+        }
+      } else if ("hashCode".equals(method.getName())) {
+        return hashCode();
+      } else if ("toString".equals(method.getName())) {
+        return toString();
+      }
+      //看看这个dispatct.get（）是如何实现的？
+      return dispatch.get(method).invoke(args);
+    }
+```
+```
+@Override
+  public Object invoke(Object[] argv) throws Throwable {
+    RequestTemplate template = buildTemplateFromArgs.create(argv);
+    Retryer retryer = this.retryer.clone();
+    while (true) {
+      try {
+        return executeAndDecode(template);
+      } catch (RetryableException e) {
+        retryer.continueOrPropagate(e);
+        if (logLevel != Logger.Level.NONE) {
+          logger.logRetry(metadata.configKey(), logLevel);
+        }
+        continue;
+      }
+    }
+  }
+
+```
+最终调用了lient类中C的默认实现
+![image](http://soft1010.top/img/feign-class-1.jpg)
+
+**结论：feign最核心的逻辑还是利用了放射&动态代理设计模式最终还是调用了java API实现http接口的调用。**
 
 ## feign与其他http客户端对比
+直接通过代码比较一下几个http调用
+#### java原生调用http接口
+```
+public static String sendGet(String url, String param) {
+        String result = "";
+        BufferedReader in = null;
+        try {
+            String urlNameString = url + "?" + param;
+            URL realUrl = new URL(urlNameString);
+            // 打开和URL之间的连接
+            URLConnection connection = realUrl.openConnection();
+            // 设置通用的请求属性
+            connection.setRequestProperty("accept", "*/*");
+            connection.setRequestProperty("connection", "Keep-Alive");
+            connection.setRequestProperty("user-agent",
+                    "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1;SV1)");
+            // 建立实际的连接
+            connection.connect();
+            // 获取所有响应头字段
+            Map<String, List<String>> map = connection.getHeaderFields();
+            // 遍历所有的响应头字段
+            for (String key : map.keySet()) {
+                System.out.println(key + "--->" + map.get(key));
+            }
+            // 定义 BufferedReader输入流来读取URL的响应
+            in = new BufferedReader(new InputStreamReader(
+                    connection.getInputStream()));
+            String line;
+            while ((line = in.readLine()) != null) {
+                result += line;
+            }
+        } catch (Exception e) {
+            System.out.println("发送GET请求出现异常！" + e);
+            e.printStackTrace();
+        }
+        // 使用finally块来关闭输入流
+        finally {
+            try {
+                if (in != null) {
+                    in.close();
+                }
+            } catch (Exception e2) {
+                e2.printStackTrace();
+            }
+        }
+        return result;
+    }
+```
+#### httpclient
+```
+ CloseableHttpClient closeableHttpClient = HttpClients.createDefault();
+        URI uri = new URIBuilder().
+                setScheme("https").
+                setHost("www.google.com").
+                setPath("/search").
+                setParameter("q", "张").
+                setParameter("btnG","Google Search").
+                setParameter("oq","").
+                setParameter("aq","f").
+                build();
+        CloseableHttpResponse closeableHttpResponse = null;
+        try {
+            HttpGet httpGet = new HttpGet(uri);
+            System.out.println(httpGet.getURI().toString());
+            closeableHttpResponse = closeableHttpClient.execute(httpGet);
+            System.out.println(closeableHttpResponse.getStatusLine().getStatusCode());
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (closeableHttpResponse != null) {
+                try {
+                    closeableHttpClient.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+```
+#### okhttp
+```
+        String url = "http://127.0.0.1:8080/feign/get/1";
+        OkHttpClient client = new OkHttpClient();
+        Request request = new Request.Builder()
+                .url(url)
+                .addHeader("1", "2")
+                .build();
+        String ret = "";
+        try (Response response = client.newCall(request).execute()) {
+            ret = response.body().string();
+        }
+        System.out.println(ret);
+```
+不同的http调用的对比
+|原生API|httpClient|okhttp|feign|
+|---|---|---|---|
+|代码量最多|对比代码量比原生好很多，支持所有http调用|相对httpclient代码量更少|代码量最少，书写最简单，但是仅支持最常用的调用|
 
 ## feign在spring boot中的应用
 

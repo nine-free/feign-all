@@ -31,7 +31,8 @@ public class FeignServerController {
     public Object test3(HttpServletRequest request) {
         Enumeration<String> enumeration = request.getHeaderNames();
         for (; enumeration.hasMoreElements(); ) {
-            logger.info(enumeration.nextElement());
+            String headerName = enumeration.nextElement();
+            logger.info(headerName + ":" + request.getHeader(headerName));
         }
         return "id:" + request.getHeader("id");
     }
