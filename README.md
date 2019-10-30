@@ -454,7 +454,190 @@ public static String sendGet(String url, String param) {
 |---|---|---|---|
 |代码量最多|对比代码量比原生好很多，支持所有http调用|相对httpclient代码量更少|代码量最少，书写最简单，但是仅支持最常用的调用|
 
-## feign在spring boot中的应用
+## feign在spring boot中的应用及如何运行的
+#### feign在spring boot中的应用
+1. 直接写对应的模板化接口，使用注解添加对应url以及参数等信息
+```
+package top.soft1010.feign.client;
+
+import org.springframework.cloud.netflix.feign.FeignClient;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
+/**
+ * Created by zhangjifu on 19/10/28.
+ */
+@FeignClient(name = "test-feign-client", url = "http://127.0.0.1:8080/")
+public interface FeignConsumer {
+    
+    @RequestMapping(value = "/feign/get/{id}")
+    String test1(@PathVariable(value = "id") Integer id);
+
+    @RequestMapping(value = "/feign/get/")
+    String test2(@RequestParam(value = "id") Integer id);
+
+}
+
+```
+2. 直接注入接口bean就可以想使用本地方法一样使用了。
+```
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+import top.soft1010.feign.client.FeignConsumer;
+import top.soft1010.feign.client.TestAppApplication;
+
+/**
+ * Created by zhangjifu on 19/10/28.
+ */
+@RunWith(SpringJUnit4ClassRunner.class)
+@SpringBootTest(classes = TestAppApplication.class)
+public class SpringFeignTest {
+
+    @Autowired
+    FeignConsumer feignConsumer;
+
+    @Test
+    public void test() {
+        System.out.println(feignConsumer.test1(1));
+    }
+
+    @Test
+    public void test2() {
+        System.out.println(feignConsumer.test2(1));
+    }
+}
+
+```
+#### spring boot(cloud)是如何集成feign，并且像使用本地方法一下实现远程调用的。
+下面跟着源码走进feign
+1. springboot启动 SpringApplication.run()
+```
+package top.soft1010.feign.client;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+//import org.springframework.cloud.netflix.feign.EnableFeignClients;
+import org.springframework.cloud.netflix.feign.EnableFeignClients;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.ComponentScan;
+
+import java.util.Arrays;
+
+/**
+ * Created by zhangjifu on 19/10/25.
+ */
+
+@SpringBootApplication
+@EnableFeignClients
+@ComponentScan(basePackages = "top.soft1010")
+public class TestAppApplication {
+
+    final static Logger logger = LoggerFactory.getLogger(TestAppApplication.class);
+
+    public static void main(String[] args) {
+        // 启动Sprign Boot
+        ApplicationContext ctx = SpringApplication.run(TestAppApplication.class, args);
+        String[] beanNames = ctx.getBeanDefinitionNames();
+        Arrays.sort(beanNames);
+        for (String beanName : beanNames) {
+            logger.info(beanName);
+        }
+    }
+}
+```
+2. 启动过程中核心方法 refresh()方法
+2-1. 其中invokeBeanFactoryPostProcessors(beanFactory)这个方法注册BeanDefinition到beanFactory
+2-2. finishBeanFactoryInitialization(beanFactory)初始化bean实例，但是这里不一定会实例化，一般都是懒加载
+```
+public void refresh() throws BeansException, IllegalStateException {
+		synchronized (this.startupShutdownMonitor) {
+			// Prepare this context for refreshing.
+			prepareRefresh();
+
+			// Tell the subclass to refresh the internal bean factory.
+			ConfigurableListableBeanFactory beanFactory = obtainFreshBeanFactory();
+
+			// Prepare the bean factory for use in this context.
+			prepareBeanFactory(beanFactory);
+
+			try {
+				// Allows post-processing of the bean factory in context subclasses.
+				postProcessBeanFactory(beanFactory);
+
+				// Invoke factory processors registered as beans in the context.
+				invokeBeanFactoryPostProcessors(beanFactory);
+
+				// Register bean processors that intercept bean creation.
+				registerBeanPostProcessors(beanFactory);
+
+				// Initialize message source for this context.
+				initMessageSource();
+
+				// Initialize event multicaster for this context.
+				initApplicationEventMulticaster();
+
+				// Initialize other special beans in specific context subclasses.
+				onRefresh();
+
+				// Check for listener beans and register them.
+				registerListeners();
+
+				// Instantiate all remaining (non-lazy-init) singletons.
+				finishBeanFactoryInitialization(beanFactory);
+
+				// Last step: publish corresponding event.
+				finishRefresh();
+			}
+
+			catch (BeansException ex) {
+				if (logger.isWarnEnabled()) {
+					logger.warn("Exception encountered during context initialization - " +
+							"cancelling refresh attempt: " + ex);
+				}
+
+				// Destroy already created singletons to avoid dangling resources.
+				destroyBeans();
+
+				// Reset 'active' flag.
+				cancelRefresh(ex);
+
+				// Propagate exception to caller.
+				throw ex;
+			}
+			finally {
+				// Reset common introspection caches in Spring's core, since we
+				// might not ever need metadata for singleton beans anymore...
+				resetCommonCaches();
+			}
+		}
+	}
+```
+3. 如何注册注册BeanDefinition到beanFactory
+一直debug进去发现与这样一段代码，简单点说就是ImportBeanDefinitionRegistrar的实现类会产生对应的BeanDefinition到beanFactory
+```
+                else if (candidate.isAssignable(ImportBeanDefinitionRegistrar.class)) {
+						// Candidate class is an ImportBeanDefinitionRegistrar ->
+						// delegate to it to register additional bean definitions
+						Class<?> candidateClass = candidate.loadClass();
+						ImportBeanDefinitionRegistrar registrar =
+								BeanUtils.instantiateClass(candidateClass, ImportBeanDefinitionRegistrar.class);
+						ParserStrategyUtils.invokeAwareMethods(
+								registrar, this.environment, this.resourceLoader, this.registry);
+						configClass.addImportBeanDefinitionRegistrar(registrar, currentSourceClass.getMetadata());
+					}
+```
+FeignClientsRegistrar就是实现了这个接口
+![image](http://soft1010.top/img/feign-class-1.jpg)
+![image](http://soft1010.top/img/feign-class-1.jpg)
+
+4. bean Initialization
+
 
 
 ## 延伸
