@@ -279,7 +279,7 @@ public class ComplexFeignTest {
 ## feign的实现原理(why)
 feign的核心jar包只有一个 **feign-core-8.18.0.jar**
 看一下整个jar包下面的类结构，相对来说比较简单
-![image](http://soft1010.top/img/feign-class.jpeg)
+![image](http://soft1010.top/img/feign-class.jpg)
 
 #### 通源码解析实现原理
 ```
@@ -351,7 +351,7 @@ feign的核心jar包只有一个 **feign-core-8.18.0.jar**
   }
 
 ```
-最终调用了lient类中C的默认实现
+最终调用了Client类中的默认实现
 ![image](http://soft1010.top/img/feign-class-1.jpg)
 
 **结论：feign最核心的逻辑还是利用了放射&动态代理设计模式最终还是调用了java API实现http接口的调用。**
@@ -633,8 +633,8 @@ public void refresh() throws BeansException, IllegalStateException {
 					}
 ```
 FeignClientsRegistrar就是实现了这个接口
-![image](http://soft1010.top/img/feign-class-1.jpg)
-![image](http://soft1010.top/img/feign-class-1.jpg)
+![image](http://soft1010.top/img/feign-spring-1.jpg)
+![image](http://soft1010.top/img/feign-spring-2.jpg)
 
 4. bean Initialization
 
