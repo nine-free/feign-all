@@ -1,18 +1,17 @@
-# feign-all
 
-## feign是什么(what)
+## 1.feign是什么(what)
 >feign是java实现的一个声明式的http客户端，
-## feign的使用(how)
+## 2.feign的使用(how)
 #### 简单使用
-maven pom.xml
+1. maven pom.xml
+``` 
+    <dependency>
+        <groupId>com.netflix.feign</groupId>
+        <artifactId>feign-core</artifactId>
+        <version>${feign.version}</version>
+    </dependency>
 ```
-        <dependency>
-            <groupId>com.netflix.feign</groupId>
-            <artifactId>feign-core</artifactId>
-            <version>${feign.version}</version>
-        </dependency>
-```
-定义http调用接口
+2. 定义http调用接口
 ```
 package top.soft1010.feign;
 
@@ -61,7 +60,7 @@ public interface TestService {
 }
 
 ```
-调用方法
+3. 调用方法
 ```
 import com.google.gson.Gson;
 import feign.Feign;
@@ -271,27 +270,26 @@ public class ComplexFeignTest {
             return new MyRetryer(this.period, this.maxPeriod, this.maxAttempts);
         }
     }
-
 }
 ```
 可以看到feign调用http接口，支持拦截器，编解码，重试等丰富的功能
 
-## feign的实现原理(why)
+## 3.feign的实现原理(why)
 feign的核心jar包只有一个 **feign-core-8.18.0.jar**
 看一下整个jar包下面的类结构，相对来说比较简单
 ![image](http://soft1010.top/img/feign-class.jpg)
 
-#### 通源码解析实现原理
-```
-                Feign.builder().
-                requestInterceptors(requestInterceptors).
-                decoder(new MyDecoder()).
-                encoder(new MyEncoder()).
-                options(new Request.Options(10000, 60000)).
-                retryer(new MyRetryer(1000, 10000, 3)).
-                logger(new MyLogger()).
-                logLevel(Logger.Level.BASIC).
-                target(TestService.class, "http://127.0.0.1:8080/");     
+#### 通过源码解析实现原理
+```  
+    Feign.builder()
+    .requestInterceptors(requestInterceptors)
+    .decoder(new MyDecoder())
+    .encoder(new MyEncoder())
+    .options(new Request.Options(10000, 60000))
+    .retryer(new MyRetryer(1000, 10000, 3))
+    .logger(new MyLogger())
+    .logLevel(Logger.Level.BASIC)
+    .target(TestService.class, "http://127.0.0.1:8080/");     
 ```
 1. 通过**构造器模式**构造Feign.Builder对象。
 2. target()方法最后调用了ReflectiveFeign.newInstance()方法
@@ -300,7 +298,7 @@ feign的核心jar包只有一个 **feign-core-8.18.0.jar**
     InvocationHandler handler = factory.create(target, methodToHandler);
     T proxy = (T) Proxy.newProxyInstance(target.type().getClassLoader(), new Class<?>[]{target.type()}, handler);
 ```
-4. 根据动态代理的原理，InvocationHandler这个接口的实现既是具体调用逻辑所在
+4. 根据动态代理的原理，**InvocationHandler**这个接口的实现既是具体调用逻辑所在
  ```
  static class FeignInvocationHandler implements InvocationHandler {
 
@@ -356,7 +354,7 @@ feign的核心jar包只有一个 **feign-core-8.18.0.jar**
 
 **结论：feign最核心的逻辑还是利用了放射&动态代理设计模式最终还是调用了java API实现http接口的调用。**
 
-## feign与其他http客户端对比
+## 4.feign与其他http客户端对比
 直接通过代码比较一下几个http调用
 #### java原生调用http接口
 ```
@@ -454,7 +452,7 @@ public static String sendGet(String url, String param) {
 |---|---|---|---|
 |代码量最多|对比代码量比原生好很多，支持所有http调用|相对httpclient代码量更少|代码量最少，书写最简单，但是仅支持最常用的调用|
 
-## feign在spring boot中的应用及如何运行的
+## 5.feign在spring boot中的应用及如何运行的
 #### feign在spring boot中的应用
 1. 直接写对应的模板化接口，使用注解添加对应url以及参数等信息
 ```
@@ -514,7 +512,7 @@ public class SpringFeignTest {
 ```
 #### spring boot(cloud)是如何集成feign，并且像使用本地方法一下实现远程调用的。
 下面跟着源码走进feign
-1. springboot启动 SpringApplication.run()
+1. spring boot启动 SpringApplication.run()
 ```
 package top.soft1010.feign.client;
 
@@ -717,7 +715,7 @@ public Object getObject() throws Exception {
 				this.type, this.name, url));
 ```
 
-## 延伸知识点
+## 6.延伸知识点
 
 #### 反射
 
@@ -733,7 +731,7 @@ public Object getObject() throws Exception {
  还有更简便的动态代理实现方法，Proxy的静态方法newProxyInstance已经为我们封装了步骤2到步骤4的过程。
 
 
-## 思考
+## 7.思考
 **mybatis也是通过写一个mapper接口&对应的xml配置就可以直接使用bean调用具体方法，这个实现是否相同？？？**
 - MapperScannerRegistrar类 实现ImportBeanDefinitionRegistrar接口
 
@@ -744,3 +742,5 @@ public Object getObject() throws Exception {
     return getSqlSession().getMapper(this.mapperInterface);
   }
 ```
+## 8.遗留问题，
+feign这个httpclient 或者 okhttp ?
