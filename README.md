@@ -719,7 +719,7 @@ public Object getObject() throws Exception {
 
 #### 反射
 
-[参考](http://kms.netease.com/article/11634)
+[参考](http://soft1010.top/2019/10/08/%E5%8F%8D%E5%B0%84%E6%9C%BA%E5%88%B6/)
 
 #### 动态代理
 - 代理类在程序运行时创建
