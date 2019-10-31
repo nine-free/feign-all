@@ -25,6 +25,7 @@ public class TestAppApplication {
     public static void main(String[] args) {
         // 启动Sprign Boot
         ApplicationContext ctx = SpringApplication.run(TestAppApplication.class, args);
+        System.out.println("=====");
         String[] beanNames = ctx.getBeanDefinitionNames();
         Arrays.sort(beanNames);
         for (String beanName : beanNames) {

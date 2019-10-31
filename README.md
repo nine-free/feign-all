@@ -551,9 +551,10 @@ public class TestAppApplication {
     }
 }
 ```
-2. 启动过程中核心方法 refresh()方法
-2-1. 其中invokeBeanFactoryPostProcessors(beanFactory)这个方法注册BeanDefinition到beanFactory
-2-2. finishBeanFactoryInitialization(beanFactory)初始化bean实例，但是这里不一定会实例化，一般都是懒加载
+2. 启动过程中核心方法 refresh()方法 
+ -  refresh()方法在启动过程中会执行两次，第一次是environmentPrepared的时候执行，我们关注的是第二次执行。
+ -  其中invokeBeanFactoryPostProcessors(beanFactory)这个方法注册BeanDefinition到beanFactory
+ -  finishBeanFactoryInitialization(beanFactory)初始化bean实例，但是这里不一定会实例化，一般都是懒加载
 ```
 public void refresh() throws BeansException, IllegalStateException {
 		synchronized (this.startupShutdownMonitor) {
@@ -618,7 +619,7 @@ public void refresh() throws BeansException, IllegalStateException {
 		}
 	}
 ```
-3. 如何注册注册BeanDefinition到beanFactory
+3. 如何注册BeanDefinition到beanFactory
 一直debug进去发现与这样一段代码，简单点说就是ImportBeanDefinitionRegistrar的实现类会产生对应的BeanDefinition到beanFactory
 ```
                 else if (candidate.isAssignable(ImportBeanDefinitionRegistrar.class)) {
@@ -633,15 +634,113 @@ public void refresh() throws BeansException, IllegalStateException {
 					}
 ```
 FeignClientsRegistrar就是实现了这个接口
+```
+private void registerFeignClient(BeanDefinitionRegistry registry,
+			AnnotationMetadata annotationMetadata, Map<String, Object> attributes) {
+		String className = annotationMetadata.getClassName();
+		//这里， FeignClientFactoryBean.class 声明的@FeignClient的接口最后就是实例化成这个类的对象
+		BeanDefinitionBuilder definition = BeanDefinitionBuilder
+				.genericBeanDefinition(FeignClientFactoryBean.class);
+		validate(attributes);
+		definition.addPropertyValue("url", getUrl(attributes));
+		definition.addPropertyValue("path", getPath(attributes));
+		String name = getName(attributes);
+		definition.addPropertyValue("name", name);
+		definition.addPropertyValue("type", className);
+		definition.addPropertyValue("decode404", attributes.get("decode404"));
+		definition.addPropertyValue("fallback", attributes.get("fallback"));
+		definition.addPropertyValue("fallbackFactory", attributes.get("fallbackFactory"));
+		definition.setAutowireMode(AbstractBeanDefinition.AUTOWIRE_BY_TYPE);
+
+		String alias = name + "FeignClient";
+		AbstractBeanDefinition beanDefinition = definition.getBeanDefinition();
+
+		boolean primary = (Boolean)attributes.get("primary"); // has a default, won't be null
+
+		beanDefinition.setPrimary(primary);
+
+		String qualifier = getQualifier(attributes);
+		if (StringUtils.hasText(qualifier)) {
+			alias = qualifier;
+		}
+
+		BeanDefinitionHolder holder = new BeanDefinitionHolder(beanDefinition, className,
+				new String[] { alias });
+		BeanDefinitionReaderUtils.registerBeanDefinition(holder, registry);
+	}
+```
 ![image](http://soft1010.top/img/feign-spring-1.jpg)
 ![image](http://soft1010.top/img/feign-spring-2.jpg)
 
 4. bean Initialization
+FeignClientFactoryBean实现了FactoryBean接口，这个接口实现方法getObject()是返回spring bean调用的方法
+```
+public Object getObject() throws Exception {
+		FeignContext context = applicationContext.getBean(FeignContext.class);
+		Feign.Builder builder = feign(context);
 
+		if (!StringUtils.hasText(this.url)) {
+			String url;
+			if (!this.name.startsWith("http")) {
+				url = "http://" + this.name;
+			}
+			else {
+				url = this.name;
+			}
+			url += cleanPath();
+			return loadBalance(builder, context, new HardCodedTarget<>(this.type,
+					this.name, url));
+		}
+		if (StringUtils.hasText(this.url) && !this.url.startsWith("http")) {
+			this.url = "http://" + this.url;
+		}
+		String url = this.url + cleanPath();
+		Client client = getOptional(context, Client.class);
+		if (client != null) {
+			if (client instanceof LoadBalancerFeignClient) {
+				// not lod balancing because we have a url,
+				// but ribbon is on the classpath, so unwrap
+				client = ((LoadBalancerFeignClient)client).getDelegate();
+			}
+			builder.client(client);
+		}
+		Targeter targeter = get(context, Targeter.class);
+		return targeter.target(this, builder, context, new HardCodedTarget<>(
+				this.type, this.name, url));
+	}
 
+```
+可以看到这个实现是不是很熟悉，就是通过动态代理代理调用具体方法的过程。
+```
+	Targeter targeter = get(context, Targeter.class);
+		return targeter.target(this, builder, context, new HardCodedTarget<>(
+				this.type, this.name, url));
+```
 
-## 延伸
+## 延伸知识点
 
 #### 反射
 
+[参考](http://kms.netease.com/article/11634)
+
 #### 动态代理
+- 代理类在程序运行时创建
+- 使用步骤
+>步骤1：通过实现InvocationHandler接口创建自己的调用处理器；
+ 步骤2：通过为Proxy类指定ClassLoader对象和一组interface来创建动态代理类；
+ 步骤3：通过反射机制获得动态代理类的构造函数，其唯一参数类型是调用处理器接口类型；
+ 步骤4：通过构造函数创建动态代理对象，构造时调用处理器对象作为参数被传入。
+ 还有更简便的动态代理实现方法，Proxy的静态方法newProxyInstance已经为我们封装了步骤2到步骤4的过程。
+
+
+## 思考
+**mybatis也是通过写一个mapper接口&对应的xml配置就可以直接使用bean调用具体方法，这个实现是否相同？？？**
+- MapperScannerRegistrar类 实现ImportBeanDefinitionRegistrar接口
+
+- MapperFactoryBean 实现FactoryBean接口
+```
+ @Override
+  public T getObject() throws Exception {
+    return getSqlSession().getMapper(this.mapperInterface);
+  }
+```
